@@ -153,6 +153,17 @@ def delete_item_from_character_inventory(character_name: Annotated[str, "Name of
 @tool
 def define_rules(rules: Annotated[str, "Game rules written in plain language to enforce gameplay compliance"]):
     "Add game rules in a string so that another LLM can read these and decide if the actions are comply with these rules."
-    game.rules= rules
+    game.rules = rules
         
+
+@tool
+def define_story(
+    story: Annotated[str, "The narrative background of the game, written in plain language."]
+):
+    """
+    Add a game story in a string so that another LLM can reference it for context,
+    lore consistency, or setting details.
+    """
+    game.story = story 
+    print(game.story)
     

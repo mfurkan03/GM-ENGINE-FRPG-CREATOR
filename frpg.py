@@ -3,7 +3,7 @@ from langchain_core.messages import HumanMessage,SystemMessage,AIMessage
 import streamlit as st
 
 from dotenv import load_dotenv
-from static_objects import game,first_prompt
+from static_objects import game,first_prompt,tasks
 
 from construct_graph import FullGraph
 
@@ -35,12 +35,18 @@ if "graph" not in st.session_state:
                 placeholder.write(full_text)  # aynı alanda güncelle
                 
         return full_text
-
-    events = graph.stream({"messages": [{"role": "user", "content":first_prompt}]},config,stream_mode="values")
-
-    full_text = print_to_streamlit(events,full_text)
     
+    for i in range(len(tasks)):
+        task = tasks[i]
+        schema_no = i
+
+        events = graph.stream({"messages": [{"role": "user", "content":task},],"current_task":task,"current_schema_no":schema_no},config,stream_mode="values")
+
+        full_text = print_to_streamlit(events,full_text)
+    
+
     st.write(game.characters)
+    st.write(game.story)
     st.write(game.rules or "Game rules weren't created!")
 
     st.session_state.graph = graph
