@@ -5,7 +5,8 @@ import streamlit as st
 from dotenv import load_dotenv
 from static_objects import game,first_prompt,tasks
 
-from construct_graph import FullGraph
+from creation_graph import FullGraph
+from loop_graph import LoopGraph
 
 import os
 
@@ -22,7 +23,11 @@ if "graph" not in st.session_state:
     full_graph = FullGraph()
     config = full_graph.config
     graph = full_graph.graph
-
+    
+    _loop_graph = LoopGraph()
+    loop_config = _loop_graph.config
+    loop_graph = _loop_graph.graph
+    
     placeholder = st.empty()  # akış için boş bir alan
 
 
@@ -49,7 +54,7 @@ if "graph" not in st.session_state:
     st.write(game.story)
     st.write(game.rules or "Game rules weren't created!")
 
-    st.session_state.graph = graph
+    st.session_state.creation_graph = graph
     st.session_state.config = config
     st.session_state.full_text = full_text
 else:
@@ -71,3 +76,4 @@ if input_text:
 
     st.session_state.full_text = print_to_streamlit(events,full_text)
     st.write(graph.get_state_history(config))
+

@@ -165,5 +165,4 @@ def define_story(
     lore consistency, or setting details.
     """
     game.story = story 
-    print(game.story)
     

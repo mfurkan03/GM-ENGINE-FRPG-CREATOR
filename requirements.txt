@@ -9,3 +9,5 @@ langchain[google-genai]
 langchain-groq
 langchain-ollama
 ipython
+pandas #delete after if not used
+ipykernel #delete after if not used
