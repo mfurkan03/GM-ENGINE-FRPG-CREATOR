@@ -12,7 +12,7 @@ game = GameContext()
 
 
 prompts = []
-system_message = SystemMessage("You are a professional FRPG game designer.")
+system_message = SystemMessage("You are a professional FRPG game designer. Don't answer me, only do the job I tell.")
 
 theme = "cyberpunk"
 
@@ -36,13 +36,13 @@ Covering key gameplay aspects, including combat, movement, inventory, and intera
 Once the rules are ready, don't forget to store them in the database using define_rules()!""",
 
 
-"""Create the main NPC characters and our character:
+"""Create the main characters:
 
 Write a short description of each character, including their personality or backstory.
 
-Assign stats for each character in dictionary format (e.g., {"strength": 8, "intelligence": 6}).
+Assign stats for each character in dictionary format (e.g., {"strength": 8, "intelligence": 6}, don't use abbreviations.) Also give money to the characters.
 
-Add each NPC to the game using the tool: 'add_character' . But don't create the inventories yet! Specify which character we will play.""",
+Add each NPC to the game using the tool: 'add_character' . But don't create the inventories yet! The user will later select which character to play. """,
 
 
 """

@@ -10,13 +10,46 @@ from loop_graph import LoopGraph
 
 import os
 
+import pickle
+
 os.environ["LANGCHAIN_TRACING_V2"]="true"
 os.environ["LANGCHAIN_API_KEY"]=os.getenv("LANGCHAIN_API_KEY")
 
 load_dotenv()
 
 full_text = ""
+    
+placeholder = st.empty()  # akış için boş bir alan
 
+def print_to_streamlit(events, full_text):
+    """
+    events: LangGraph akışından gelen event listesi
+    full_text: Streamlit alanında biriken metni tutmak için
+    """
+    previous_id = ""
+    for event in events:
+
+        if "messages" in event:
+            msg = event["messages"][-1]
+
+            if msg.id == previous_id: 
+                continue
+            
+            if isinstance(msg, HumanMessage):
+                full_text += f"\n**Human:** {msg.content}\n"
+                
+            elif isinstance(msg, AIMessage):
+                full_text += f"\n**AI:** {msg.content}\n"
+                
+            else: 
+                continue    
+            # Güncellenen tüm metni placeholder'a yaz
+
+
+            previous_id = msg.id
+            placeholder.write(full_text)
+    
+    return full_text
 
 if "graph" not in st.session_state:
 
@@ -27,19 +60,8 @@ if "graph" not in st.session_state:
     _loop_graph = LoopGraph()
     loop_config = _loop_graph.config
     loop_graph = _loop_graph.graph
+
     
-    placeholder = st.empty()  # akış için boş bir alan
-
-
-    def print_to_streamlit(events,full_text):
-                    # biriken metni tutmak için
-
-        for event in events:
-            if "messages" in event and isinstance(event["messages"][-1], HumanMessage) or isinstance(event["messages"][-1], AIMessage):
-                full_text += str(event["messages"][-1].content)    # yeni token'ı ekle
-                placeholder.write(full_text)  # aynı alanda güncelle
-                
-        return full_text
     
     for i in range(len(tasks)):
         task = tasks[i]
@@ -54,26 +76,37 @@ if "graph" not in st.session_state:
     st.write(game.story)
     st.write(game.rules or "Game rules weren't created!")
 
-    st.session_state.creation_graph = graph
+    with open('game.pkl', 'wb') as f:
+
+        pickle.dump(game,f)
+
+    st.session_state.graph = graph
     st.session_state.config = config
     st.session_state.full_text = full_text
+
 else:
     
     graph = st.session_state.graph
     config = st.session_state.config
     full_text = st.session_state.full_text
 
+if 'input_text' not in st.session_state:
+    st.session_state.input_text = ''
 
-input_text=st.text_input("...")
+def submit():
+    st.session_state.input_text = st.session_state.widget
+    st.session_state.widget = ""
 
-if input_text:
+st.text_input('Something', key='widget', on_change=submit)
+
+if st.session_state.input_text:
 
     events = graph.stream(
-        {"messages": [{"role": "user", "content": input_text}]},
+        {"messages": [{"role": "user", "content": st.session_state.input_text}]},
         config,
         stream_mode="values",
     )
 
     st.session_state.full_text = print_to_streamlit(events,full_text)
-    st.write(graph.get_state_history(config))
 
+    

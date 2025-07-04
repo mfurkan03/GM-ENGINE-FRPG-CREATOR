@@ -26,12 +26,12 @@ class State(TypedDict):
         current_task:str
         current_schema_no:int
 
-# llm = ChatGroq(
-#     groq_api_key=os.getenv("GROQ_API_KEY"),
-#     model="qwen/qwen3-32b",  # veya Groq'un desteklediği başka bir model
-# )
+llm = ChatGroq(
+    groq_api_key=os.getenv("GROQ_API_KEY"),
+    model="qwen/qwen3-32b",  # veya Groq'un desteklediği başka bir model
+)
 
-# llm = ChatOllama(model = "llama3.2:3b")
+#llm = ChatOllama(model = "llama3.2:3b")
 
 
 tools = [
@@ -41,7 +41,7 @@ tools = [
     define_story
 ]
 
-llm = init_chat_model("google_genai:gemini-2.0-flash")
+#llm = init_chat_model("google_genai:gemini-2.5-flash")
 
 llm_with_tools = llm.bind_tools(tools)
 
@@ -125,7 +125,7 @@ class FullGraph:
      
     def __init__(self):
         
-        self.config = {"configurable": {"thread_id": "1"}}
+        self.config = {"configurable": {"thread_id": "3"}}
 
         graph_builder = StateGraph(State)
 

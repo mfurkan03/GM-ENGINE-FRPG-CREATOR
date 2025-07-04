@@ -19,7 +19,6 @@ from game_functions import add_character,add_item_to_character_inventory,delete_
 
 import os
 
-
 class State(TypedDict):
         messages: Annotated[list, add_messages]
 
@@ -44,7 +43,7 @@ def looper(state: State):
 last_x_rounds = 10
 
 system_message = SystemMessage("You are a FRPG Game Master. " \
-"You will be provided with the game scenario, the game history brief, the rules, the last {last_x_rounds} rounds if there are that much and, a rag history related to the prompt. " \
+f"You will be provided with the game scenario, the game history brief, the rules, the last {last_x_rounds} rounds if there are that much and, a rag history related to the prompt. " \
 "Process the user's input, continue the story and play the NPC's rounds.")
 
 def prepare_prompts_node(state):
@@ -82,14 +81,14 @@ class LoopGraph:
 
         graph_builder.add_edge(START, "prepare_prompts")
         
-        graph_builder.add_edge("prepare_prompts", "chatbot")
+        graph_builder.add_edge("prepare_prompts", "looper")
 
         graph_builder.add_conditional_edges(
             "looper",
             tools_condition,
         )
         
-        graph_builder.add_edge("chatbot",END)
+        graph_builder.add_edge("looper",END)
 
         graph = graph_builder.compile(checkpointer=MemorySaver())
 
