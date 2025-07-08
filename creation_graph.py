@@ -15,7 +15,7 @@ from langchain.prompts import ChatPromptTemplate
 from pydantic import BaseModel,Field
 
 from static_objects import game,first_prompt
-from game_functions import add_character,add_item_to_character_inventory,define_rules,define_story
+from game_functions import add_or_change_character,add_or_change_item_to_character_inventory,define_rules,define_story
 
 import os
 
@@ -35,13 +35,13 @@ llm = ChatGroq(
 
 
 tools = [
-    add_character,
-    add_item_to_character_inventory,
+    add_or_change_character,
+    add_or_change_item_to_character_inventory,
     define_rules,
     define_story
 ]
 
-#llm = init_chat_model("google_genai:gemini-2.5-flash")
+# llm = init_chat_model("google_genai:gemini-2.0-flash")
 
 llm_with_tools = llm.bind_tools(tools)
 
@@ -52,7 +52,7 @@ class Feedback(BaseModel):
     )
 
     feedback: str = Field(
-        description="You are an evaluator for an FRPG game. The user will send you a prompt regarding the requested format and an output for that format, and you will check if the produced output fits the format. Were the requests met? Are there blank fields that should not be blank?",
+        description="You are an evaluator for an FRPG game. The user will send you a prompt regarding the requested format and an output for that format, and you will check if the produced output fits the format. Were the requests met? Are there blank fields that should not be blank? Don't be too harsh!",
     )
 
 evaluator = llm.with_structured_output(Feedback)
@@ -75,9 +75,10 @@ def evaluator_stage(state:State):
     schema = schema[state["current_schema_no"]]
     human_message = "The requested task is this:" + state["current_task"]+"The output generated for this task is this:"+str(schema)+" Are there any mistakes here? If so, please specify the source of the mistake. Else, Answer with yes. Note, the tools that were available in the task are not available for you, don't take tool usage into consideration."
 
-    response = evaluator.invoke([SystemMessage("You are an evaluator for an FRPG game. The user will send you a prompt regarding the requested format and an output for that format, and you will check if the produced output fits the format. Were the requests met? Are there blank fields that should not be blank? Don't be too harsh. If there isn't any blank field or structural mistake, then no problem"),HumanMessage(human_message)])
-#    print(response.feedback,game.characters,game.rules)
+    response = evaluator.invoke([SystemMessage("You are an evaluator for an FRPG game. The user will send you a prompt regarding the requested format and an output for that format, and you will check if the produced output fits the format. Are there blank fields that should not be blank? Don't be too harsh the format doesn't have to exactly comply. If there isn't any blank field or structural mistake, then no problem!"),HumanMessage(human_message)])
     
+    # print(response.feedback,game.characters,game.rules)
+    print(response)
     return {"format_comply_or_not":response.format_comply_or_not, "feedback":response.feedback}
 
 def route_feedback(state:State):
@@ -125,7 +126,7 @@ class FullGraph:
      
     def __init__(self):
         
-        self.config = {"configurable": {"thread_id": "3"}}
+        self.config = {"configurable": {"thread_id": "4"}, "recursion_limit":25}
 
         graph_builder = StateGraph(State)
 
@@ -158,9 +159,9 @@ class FullGraph:
                 },
         )
 
-        graph_builder.add_edge("tools", "chatbot")
+        graph_builder.add_edge("tools", "evaluator")
 
-        graph = graph_builder.compile(checkpointer=MemorySaver())
+        graph = graph_builder.compile()
 
         self.graph = graph
 
@@ -168,5 +169,5 @@ class FullGraph:
 # png_data = FullGraph().graph.get_graph().draw_mermaid_png()
 
 # # PNG'yi dosyaya yaz:
-# with open("output.png", "wb") as f:
+# with open("full_graph.png", "wb") as f:
 #     f.write(png_data)

@@ -1,16 +1,17 @@
 from langchain_core.tools import InjectedToolCallId, tool
 from typing import Annotated
 from static_objects import game
+import random
 
 @tool
-def add_character(
+def add_or_change_character(
     name: Annotated[str, "Unique character name"],
     details: Annotated[str, "Character description, personality, appearance, or backstory"],
     money: Annotated[int, "Initial in-game currency for the character"],
     stats: Annotated[dict, "Character's stats as a dictionary, e.g., {'strength': 8}"]
 ):
     """
-    Add a new character to the game.
+    Add a new character to the game, or change the character that already exists.
 
     Parameters:
         name (str): The name of the new character. Must be unique within the game.
@@ -42,7 +43,7 @@ def add_character(
         - Consider validating unique character names or confirming overwrites in production code.
 
     Example usage:
-        add_character(
+        add_or_change_character(
             name="Artemis",
             details="A stealthy ranger with a mysterious past.",
             money=100,
@@ -59,7 +60,80 @@ def add_character(
     game.characters[name.lower()] = template
 
 @tool
-def add_item_to_character_inventory(
+def add_money(
+    character_name: Annotated[str, "Name of the character whose money will be increased"],
+    amount_to_add: Annotated[int, "Amount of in-game currency to add to the character"]
+):
+    """
+    Increase the specified character's money by a given amount.
+
+    Parameters:
+        character_name (str): The name of the character whose money will be increased.
+        amount_to_add (int): The amount of in-game currency to add.
+
+    Behavior:
+        - Locates the character by name (case-insensitive).
+        - Adds the specified amount to the character's current money.
+        - Updates the global 'characters' dictionary with the new money value.
+
+    Important Notes:
+        - Ensure the character exists in the global 'characters' dictionary before calling this function.
+        - The function performs a case-insensitive match for the character name.
+        - Adding a negative amount will reduce money instead of increasing it, so validate inputs if needed.
+
+    Returns:
+        str: A message indicating the updated money amount after addition.
+
+    Example usage:
+        add_money(
+            character_name="Artemis",
+            amount_to_add=200
+        )
+    """
+    char_key = character_name.lower()
+    game.characters[char_key]["money"] += amount_to_add
+    return f"Success, {amount_to_add} gold added to {character_name}. New balance: {game.characters[char_key]['money']} gold."
+
+@tool
+def reduce_money(
+    character_name: Annotated[str, "Name of the character whose money will be reduced"],
+    amount_to_reduce: Annotated[int, "Amount of in-game currency to deduct from the character"]
+):
+    """
+    Reduce the specified character's money by a given amount.
+
+    Parameters:
+        character_name (str): The name of the character whose money will be reduced.
+        amount_to_reduce (int): The amount of in-game currency to deduct.
+
+    Behavior:
+        - Checks whether the character has enough money to cover the amount.
+        - If the character does not have enough money, returns a rejection message.
+        - If sufficient funds are available, deducts the amount from the character's money.
+        - Updates the global 'characters' dictionary with the new money value.
+
+    Important Notes:
+        - Ensure the character exists in the global 'characters' dictionary before calling this function.
+        - The function performs a case-insensitive match for the character name.
+
+    Returns:
+        str: A message indicating success or failure of the operation.
+
+    Example usage:
+        reduce_money(
+            character_name="Artemis",
+            amount_to_reduce=50
+        )
+    """
+    char_key = character_name.lower()
+    if game.characters[char_key]["money"] < amount_to_reduce:
+        return "Rejected, you don't have enough money!"
+    
+    game.characters[char_key]["money"] -= amount_to_reduce
+    return f"Success, {amount_to_reduce} gold deducted from {character_name}."
+
+@tool
+def add_or_change_item_to_character_inventory(
     character_name: Annotated[str, "Name of the character to receive the item"],
     is_weapon: Annotated[bool, "True if the item is a weapon, False otherwise"],
     item_name: Annotated[str, "Name of the item to add"],
@@ -68,7 +142,7 @@ def add_item_to_character_inventory(
     value: Annotated[int, "Value of the item in in-game currency"]
 ):
     """
-    Adds a weapon or an item to the specified character's inventory.
+    Adds a weapon or an item to the specified character's inventory or changes an already existing one.
 
     Parameters:
         character_name (str): The name of the character to whom the item will be added.
@@ -104,7 +178,7 @@ def add_item_to_character_inventory(
         - If stats is missing or incorrectly formatted, the system may throw an error or produce unintended behavior.
 
     Example usage:
-        add_item_to_character_inventory(
+        add_or_change_item_to_character_inventory(
             character_name="Alice",
             is_weapon=True,
             item_name="Excalibur",
@@ -127,8 +201,40 @@ def add_item_to_character_inventory(
             "value": value
         }
 
-    game.characters[character_name.lower()]["inventory"].append(template)
-    
+    inventory = game.characters[character_name.lower()]["inventory"]
+
+    # Replace existing item if name matches; otherwise append as new
+    for idx, item in enumerate(inventory):
+        if item.get("name") == item_name:
+            inventory[idx] = template
+            break
+    else:
+        inventory.append(template)
+
+@tool
+def roll_dice(sides: int = 20, number: int = 1):
+    """
+    Rolls one or more dice with a specified number of sides.
+
+    Args:
+        sides (int): The number of faces on the die (e.g., 6 for d6, 20 for d20).
+        number (int): The number of dice to roll simultaneously.
+
+    Returns:
+        list: A list containing the results of each die rolled.
+
+    Example:
+        roll_dice(20)       # Rolls a single d20
+        roll_dice(6, 2)     # Rolls two d6 dice
+    """
+    results = [random.randint(1, sides) for _ in range(number)]
+    return results
+
+# Example usage:
+# print("d20 result:", roll_dice(20))
+# print("2d6 results:", roll_dice(6, 2))
+
+
 @tool
 def delete_item_from_character_inventory(character_name: Annotated[str, "Name of the character whose inventory will be modified"],
     item_name: Annotated[str, "Name of the item to delete from the character's inventory"]):
@@ -153,8 +259,9 @@ def delete_item_from_character_inventory(character_name: Annotated[str, "Name of
 @tool
 def define_rules(rules: Annotated[str, "Game rules written in plain language to enforce gameplay compliance"]):
     "Add game rules in a string so that another LLM can read these and decide if the actions are comply with these rules."
+    "Returns True if worked successfully"
     game.rules = rules
-        
+    return True    
 
 @tool
 def define_story(
@@ -164,5 +271,8 @@ def define_story(
     Add a game story in a string so that another LLM can reference it for context,
     lore consistency, or setting details.
     """
+    "Returns True if worked successfully"
+
     game.story = story 
-    
+    return True    
+
