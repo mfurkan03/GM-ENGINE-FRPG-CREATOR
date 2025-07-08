@@ -111,7 +111,7 @@ def start_game(graph,config,full_text):
     define_non_player([main_character])
 
     content = f"""My character is {main_character}, other characters are NPCs. 
-    You will play the rounds of NPCs and won't give the decisions to me. The round order for me and other characters is in this order: {list(game.characters.keys())} , please obey this order. 
+    You will play the rounds of NPCs and won't give the decisions to me for them.  Only play the npc characters. Don't play the PLAYER characters, I will make every decision about me, don't decide what I will do or say. The round order for me and other characters is in this order: {list(game.characters.keys())}, please obey this order. 
     Based on the provided details, first tell our current situation, explain the story and continue the game in round order by playing the NPCs. 
     The story should go like this, start from the start, you can manipulate the story if needed:{game.story}. 
     """
