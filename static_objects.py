@@ -1,5 +1,8 @@
 from langchain_core.messages import HumanMessage, AIMessage,SystemMessage
 from langchain.prompts import ChatPromptTemplate
+from langchain_core.messages import ToolMessage
+import json
+
 import pickle
 
 class GameContext:
@@ -8,7 +11,12 @@ class GameContext:
         self.rules = ""
         self.story = ""
     
-
+    def value(self, new_value):
+        old_value = self._value
+        self._value = new_value
+        for callback in self._listeners:
+            callback(old_value, new_value)
+            
 # game = GameContext()
 
 with open('game_1.pkl', 'rb') as file:
@@ -98,3 +106,31 @@ The adventurer entered the dark forest in search of the lost Sigil of Aranth. St
 - The player said: "I cast a fireball at the goblin chief!"
 - Rolled a 19 on spellcasting.
 - Fireball hit, dealing 12 damage. Goblin Chief is badly burned."""
+
+
+class BasicToolNode:
+    """A node that runs the tools requested in the last AIMessage."""
+
+    def __init__(self, tools: list,message_str:str = "messages") -> None:
+        self.tools_by_name = {tool.name: tool for tool in tools}
+        self.str = message_str
+        
+    def __call__(self, inputs: dict):
+        if messages := inputs.get(self.str, []):
+            message = messages[-1]
+        else:
+            raise ValueError("No message found in input")
+        outputs = []
+        for tool_call in message.tool_calls:
+            tool_result = self.tools_by_name[tool_call["name"]].invoke(
+                tool_call["args"]
+            )
+            outputs.append(
+                ToolMessage(
+                    content=json.dumps(tool_result),
+                    name=tool_call["name"],
+                    tool_call_id=tool_call["id"],
+                )
+            )
+        return {"messages": outputs}
+

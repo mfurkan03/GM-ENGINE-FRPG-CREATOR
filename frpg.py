@@ -17,7 +17,6 @@ os.environ["LANGCHAIN_API_KEY"]=os.getenv("LANGCHAIN_API_KEY")
 
 load_dotenv()
 
-full_text = ""
     
 placeholder = st.empty()  # akış için boş bir alan
 
@@ -32,7 +31,7 @@ def print_to_streamlit(events, full_text):
         if "messages" in event:
             msg = event["messages"][-1]
 
-            if msg.id == previous_id: 
+            if msg.id == previous_id or msg.content == "": 
                 continue
 
             if isinstance(msg, AIMessage):
@@ -44,7 +43,7 @@ def print_to_streamlit(events, full_text):
 
             previous_id = msg.id
             placeholder.write(full_text)
-    
+
     return full_text
 
 def print_text_to_streamlit(text, full_text):
@@ -109,15 +108,30 @@ def start_game(graph,config,full_text):
     main_character = game.main_character
     
     define_non_player([main_character])
-
+    
     content = f"""My character is {main_character}, other characters are NPCs. 
-    You will play the rounds of NPCs and won't give the decisions to me for them.  Only play the npc characters. Don't play the PLAYER characters, I will make every decision about me, don't decide what I will do or say. The round order for me and other characters is in this order: {list(game.characters.keys())}, please obey this order. 
+    You will play the rounds of NPCs and won't give the decisions to me for them.  Only play the npc characters. Don't play the PLAYER characters, 
+    I will make every decision about me, don't decide what I will do or say. 
+    After I say my input, play the rounds for each npc in order. 
+    The round order for me and other characters is in this order: {list(game.characters.keys())}, please obey this order. 
     Based on the provided details, first tell our current situation, explain the story and continue the game in round order by playing the NPCs. 
+    
     The story should go like this, start from the start, you can manipulate the story if needed:{game.story}. 
+
+    Don't talk too long, don't talk or describe unnecessarily.
+
+    Write in this format!:
+    
+    ## **Round 1**
+    ### **Character 1's turn**
+    ### **Character 2's turn**
+    ...
+    ### **Player's Character's turn2** : please provide input
     """
 
-    invoke_loop(graph,config,full_text,content=content)
-
+    return invoke_loop(graph,config,full_text,content=content)
+    
+    
 def invoke_loop(graph,config,full_text,content = None):
 
     content = st.session_state.input_text if not content else content
@@ -125,17 +139,16 @@ def invoke_loop(graph,config,full_text,content = None):
     
     full_text = print_text_to_streamlit(content,full_text)
 
-
-    content+=f"The rules are {game.rules}. The characters and their inventories stats and other details are : {game.characters}"
-
     events = graph.stream(
         {"messages": [{"role": "user", "content": content}]},
         config,
         stream_mode="values",
     )
+    
+    full_text = print_to_streamlit(events,full_text)
+    
 
-    st.session_state.full_text = print_to_streamlit(events,full_text)
-
+    return full_text
 
 if "full_graph" not in st.session_state:
 
@@ -147,17 +160,18 @@ if "full_graph" not in st.session_state:
     loop_config = _loop_graph.config
     loop_graph = _loop_graph.graph
     
-    
+    full_text = ""
 
     #create_game(full_graph,full_config,full_text,save_created=True,override_save=True)
 
-    start_game(loop_graph,loop_config,full_text)
+    full_text = start_game(loop_graph,loop_config,full_text)
 
     st.session_state.full_graph = full_graph
     st.session_state.full_config = full_config
     st.session_state.loop_graph = loop_graph
     st.session_state.loop_config = loop_config
     st.session_state.full_text = full_text
+    st.session_state.game = game
 
 else:
     
@@ -166,9 +180,12 @@ else:
     loop_graph = st.session_state.loop_graph
     loop_config = st.session_state.loop_config
     full_text = st.session_state.full_text
+    game = st.session_state.game
 
 if 'input_text' not in st.session_state:
-    st.session_state.input_text = ''
+    st.session_state.input_text = ''    
+    st.sidebar.json(game.characters)
+
 
 def submit():
     st.session_state.input_text = st.session_state.widget
@@ -176,6 +193,8 @@ def submit():
 
 st.text_input('Something', key='widget', on_change=submit)
 
+
 if st.session_state.input_text:
 
-    invoke_loop(loop_graph,loop_config,full_text)
+    st.session_state.full_text = invoke_loop(loop_graph,loop_config,full_text)
+    st.sidebar.json(game.characters)

@@ -251,10 +251,13 @@ def delete_item_from_character_inventory(character_name: Annotated[str, "Name of
         raise KeyError(f"{character_name} does not have an inventory.")
 
     # Find the item and erase it from the inventory.
-    try:
-        inventory.remove(item_name)
-    except ValueError:
-        raise ValueError(f"{item_name} isn't in the inventory.")
+    for idx, item in enumerate(inventory):
+        if item.get("name") == item_name:
+            del inventory[idx]
+            break
+    else:
+        raise ValueError(f"{item_name} isn't in the inventory. {inventory}")
+
 
 @tool
 def define_rules(rules: Annotated[str, "Game rules written in plain language to enforce gameplay compliance"]):
