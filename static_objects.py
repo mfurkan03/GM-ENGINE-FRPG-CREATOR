@@ -1,4 +1,5 @@
-from langchain_core.messages import HumanMessage, AIMessage,SystemMessage
+from typing import List
+from langchain_core.messages import HumanMessage, AIMessage,SystemMessage,BaseMessage,BaseMessageChunk,AIMessageChunk
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.messages import ToolMessage
 import json
@@ -71,7 +72,7 @@ Once the rules are ready, don't forget to store them in the database using defin
 
 Write a short description of each character, including their personality or backstory.
 
-Assign stats for each character in dictionary format (e.g., {"strength": 8, "intelligence": 6}, don't use abbreviations like BOD or MND etc.) Also give money to the characters.
+Assign stats for each character in dictionary format (e.g., {"strength": 8, "intelligence": 6}, don't use abbreviations like BOD or MND etc.) Also give money and HP to the characters.
 
 Add each NPC to the game using the tool: 'add_or_change_character' . But don't create the inventories yet! The user will later select which character to play. """,
 
@@ -134,3 +135,78 @@ class BasicToolNode:
             )
         return {"messages": outputs}
 
+def sanitize_message_content(messages: List[BaseMessage]) -> List[BaseMessage]:
+    """
+    Args:
+        messages: List of BaseMessage objects to sanitize
+        
+    Returns:
+        List[BaseMessage]: Sanitized message list with empty text entries removed
+    """
+    sanitized_messages = []
+
+    for msg in messages:
+        # Create a copy of the message to avoid modifying the original
+        if isinstance(msg, AIMessage) or isinstance(msg, AIMessageChunk):
+            # Handle content that is a list of content items (dict with type/text)
+            if isinstance(msg.content, list):
+                # Filter out content items with empty text
+                non_empty_content = [
+                    item for item in msg.content 
+                    if not (item.get('type') == 'text' and (item.get('text', '') == '' or item.get('text') is None))
+                ]
+                
+                # If we have non-empty content, create a new message with it
+                if non_empty_content:
+                    new_msg = AIMessage(
+                        content=non_empty_content,
+                        additional_kwargs=msg.additional_kwargs,
+                        response_metadata=msg.response_metadata,
+                        id=msg.id,
+                        tool_calls=getattr(msg, 'tool_calls', None),
+                        usage_metadata=getattr(msg, 'usage_metadata', None)
+                    )
+                    sanitized_messages.append(new_msg)
+                else:
+                    # If all content was empty and removed, create a simple non-empty message
+                    # to maintain the conversation flow
+                    new_msg = AIMessage(
+                        content=[{'type': 'text', 'text': '[No content]'}],
+                        additional_kwargs=msg.additional_kwargs,
+                        response_metadata=msg.response_metadata,
+                        id=msg.id,
+                        tool_calls=getattr(msg, 'tool_calls', None),
+                        usage_metadata=getattr(msg, 'usage_metadata', None)
+                    )
+                    sanitized_messages.append(new_msg)
+            else:
+                # Handle string content - ensure it's not empty
+                if not msg.content:
+                    content = "[No content]"
+                # Handle case when content is a string representation of a list with empty text
+                elif isinstance(msg.content, str) and msg.content.startswith("[{'type': 'text', 'text': ") and ("''" in msg.content or '""' in msg.content):
+                    content = "[No content]"
+                elif isinstance(msg.content, list) and len(msg.content) == 1:
+                    item = msg.content[0]
+                    if isinstance(item, dict) and item.get('type') == 'text' and not item.get('text', '').strip():
+                        content = "[No content]"
+                    else:
+                        content = msg.content
+                else:
+                    content = msg.content
+                
+                new_msg = AIMessage(
+                    content=[{'type': 'text', 'text': content}] if isinstance(content, str) else content,
+                    additional_kwargs=msg.additional_kwargs,
+                    response_metadata=msg.response_metadata,
+                    id=msg.id,
+                    model_fields_set=msg.model_fields_set,
+                    tool_calls=getattr(msg, 'tool_calls', None),
+                    usage_metadata=getattr(msg, 'usage_metadata', None)
+                )
+                sanitized_messages.append(new_msg)
+        else:
+            # For non-AI messages, keep as is
+            sanitized_messages.append(msg)
+
+    return sanitized_messages

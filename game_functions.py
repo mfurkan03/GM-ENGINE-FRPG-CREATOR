@@ -60,6 +60,93 @@ def add_or_change_character(
     game.characters[name.lower()] = template
 
 @tool
+def add_hp(
+    character_name: Annotated[str, "Name of the character who will receive healing"],
+    hp_to_add: Annotated[int, "Amount of HP to restore to the character"]
+):
+    """
+    Restores HP (Hit Points) to a character by increasing their current HP by a specified amount.
+
+    Parameters:
+        character_name (str): The name of the character who will receive healing.
+        hp_to_add (int): The amount of HP to add to the character.
+
+    Behavior:
+        - Locates the character by name (case-insensitive).
+        - Adds the specified HP to the character's current HP.
+        - Updates the global 'characters' dictionary with the new HP value.
+        - Does not enforce a maximum HP cap unless handled elsewhere.
+
+    Important Notes:
+        - Ensure the character exists in the global 'characters' dictionary before calling this function.
+        - The function performs a case-insensitive match for the character name.
+        - This simulates the effect of a healing action that restores the character’s HP.
+        - If your game has a maximum HP limit, you should apply that constraint externally or extend this function.
+
+    Returns:
+        str: A message indicating the HP restored and the character's new HP total.
+
+    Example usage:
+        add_hp(
+            character_name="Athena",
+            hp_to_add=40
+        )
+    """
+    char_key = character_name.lower()
+    
+    if char_key not in game.characters:
+        return f"Character '{character_name}' not found."
+
+    current_hp = game.characters[char_key].get("hp", 100)  # Default to 100 if undefined
+    new_hp = current_hp + hp_to_add
+    game.characters[char_key]["hp"] = new_hp
+
+    return f"{character_name} was healed for {hp_to_add} HP. Current HP: {new_hp}."
+
+@tool
+def deal_damage(
+    character_name: Annotated[str, "Name of the character who will receive damage"],
+    damage_dealt: Annotated[int, "Amount of damage to apply to the character's HP"]
+):
+    """
+    Inflicts damage to a character by reducing their HP (Hit Points) by a specified amount.
+
+    Parameters:
+        character_name (str): The name of the character who will receive damage.
+        damage_dealt (int): The amount of damage to subtract from the character's HP.
+
+    Behavior:
+        - Locates the character by name (case-insensitive).
+        - Subtracts the specified damage from the character's current HP.
+        - Ensures that HP does not drop below 0 (minimum HP is 0).
+        - Updates the global 'characters' dictionary with the new HP value.
+
+    Important Notes:
+        - Ensure the character exists in the global 'characters' dictionary before calling this function.
+        - The function performs a case-insensitive match for the character name.
+        - If the character's HP reaches 0, they are considered defeated (but this function does not handle game-over logic).
+
+    Returns:
+        str: A message indicating the damage taken and the character's remaining HP.
+
+    Example usage:
+        deal_damage(
+            character_name="Ares",
+            damage_dealt=25
+        )
+    """
+    char_key = character_name.lower()
+    
+    if char_key not in game.characters:
+        return f"Character '{character_name}' not found."
+
+    current_hp = game.characters[char_key].get("hp", 100)  # Default to 100 if undefined
+    new_hp = max(0, current_hp - damage_dealt)
+    game.characters[char_key]["hp"] = new_hp
+
+    return f"{character_name} received {damage_dealt} damage. Remaining HP: {new_hp}."
+
+@tool
 def add_money(
     character_name: Annotated[str, "Name of the character whose money will be increased"],
     amount_to_add: Annotated[int, "Amount of in-game currency to add to the character"]

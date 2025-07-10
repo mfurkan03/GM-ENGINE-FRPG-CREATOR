@@ -102,7 +102,7 @@ def define_non_player(list_of_players):
         else:
             game.characters[i]["character_type"] = "npc"
         
-def start_game(graph,config,full_text):
+def start_game(graph_object,config,full_text):
 
     game.main_character = list(game.characters.keys())[-1]
     main_character = game.main_character
@@ -118,7 +118,7 @@ def start_game(graph,config,full_text):
     
     The story should go like this, start from the start, you can manipulate the story if needed:{game.story}. 
 
-    Don't talk too long, don't talk or describe unnecessarily.
+    Don't talk too long, don't talk or describe unnecessarily. Ask for confirmation before any important action from me.
 
     Write in this format!:
     
@@ -129,10 +129,12 @@ def start_game(graph,config,full_text):
     ### **Player's Character's turn2** : please provide input
     """
 
-    return invoke_loop(graph,config,full_text,content=content)
+    return invoke_loop(graph_object,config,full_text,content=content)
     
     
-def invoke_loop(graph,config,full_text,content = None):
+def invoke_loop(graph_object,config,full_text,content = None):
+
+    graph = graph_object.graph
 
     content = st.session_state.input_text if not content else content
 
@@ -144,7 +146,9 @@ def invoke_loop(graph,config,full_text,content = None):
         config,
         stream_mode="values",
     )
-    
+
+    graph_object.round_counter+=1
+
     full_text = print_to_streamlit(events,full_text)
     
 
@@ -156,10 +160,9 @@ if "full_graph" not in st.session_state:
     full_config = full_graph.config
     full_graph = full_graph.graph
     
-    _loop_graph = LoopGraph()
-    loop_config = _loop_graph.config
-    loop_graph = _loop_graph.graph
-    
+    loop_graph = LoopGraph()
+    loop_config = loop_graph.config
+
     full_text = ""
 
     #create_game(full_graph,full_config,full_text,save_created=True,override_save=True)

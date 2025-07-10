@@ -3,31 +3,39 @@ from typing import Annotated, Literal
 from typing_extensions import TypedDict
 
 from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.vectorstores import MemoryVectorStore
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain.chat_models import init_chat_model
 from langchain_ollama.chat_models import ChatOllama
 from langchain_groq import ChatGroq
-from langchain_core.messages import HumanMessage,SystemMessage,AIMessage
+from langchain_core.messages.utils import count_tokens_approximately
+from langchain_core.messages import HumanMessage,SystemMessage,AIMessage,ToolMessage,RemoveMessage,AnyMessage
 from langchain.prompts import ChatPromptTemplate
-from langchain_core.messages import RemoveMessage
+from langmem.short_term import SummarizationNode, RunningSummary
 
 from pydantic import BaseModel,Field
 
 from static_objects import game,game_string_format,BasicToolNode
 from game_functions import add_or_change_character,add_or_change_item_to_character_inventory,delete_item_from_character_inventory,define_story,roll_dice,add_money,reduce_money
 
+import queue
+
 import os
 
 class State(TypedDict):
         messages: Annotated[list, add_messages]
-        tool_controller_messages: Annotated[list, add_messages]
+        reason : str
+        summary : str
+        context: str
+        summarized_messages: list[AnyMessage,add_messages]
 
 class ResponseFormatter(BaseModel):
     """Always use this tool to structure your response to the user."""
-    tool_called : bool = Field(
-        description="If there are any tools called",
+
+    tool_used_other_than_responseformatter: bool = Field(
+        description="If any tool other than ResponseFormatter is used, then True."
     )
 
     reason: str = Field(
@@ -35,7 +43,7 @@ class ResponseFormatter(BaseModel):
     )
 
     summary: str = Field(
-        description="Summary of the action that required tools if there are any, within a sentence.",
+        description="Summary of the action that required tools if there are any, within a sentence. (Other than this tool)",
     )
 
 tools = [
@@ -48,12 +56,27 @@ tools = [
 ]
 
 
-llm = init_chat_model("google_genai:gemini-2.5-flash")
 
-# llm = ChatGroq(
-#     groq_api_key=os.getenv("GROQ_API_KEY"),
-#     model="llama3-70b-8192",  # veya Groq'un desteklediği başka bir model
-# )
+tooler_llm = ChatGroq(
+    groq_api_key=os.getenv("GROQ_API_KEY"),
+    model="qwen/qwen3-32b",  # veya Groq'un desteklediği başka bir model
+    reasoning_effort="default",
+    reasoning_format="hidden"
+)
+
+# llm = init_chat_model("google_genai:gemini-2.0-flash")
+
+llm = ChatGroq(
+    groq_api_key=os.getenv("GROQ_API_KEY"),
+    model="llama-3.1-8b-instant",  # veya Groq'un desteklediği başka bir model
+)
+
+summarizer_llm = ChatGroq(
+    groq_api_key=os.getenv("GROQ_API_KEY"),
+    model="gemma2-9b-it",  # veya Groq'un desteklediği başka bir model
+)
+
+summarizer_llm = summarizer_llm.bind(max_tokens = 512)
 
 last_x_rounds = 10
 
@@ -65,34 +88,68 @@ f"(or the current history if there are less rounds than {last_x_rounds}, a rag h
 "you must stay in character and reply as if you don't understand or bring the conversation back to the fantasy setting." \
 )
 
-tool_system_message = SystemMessage("You are an assistant to a FRPG Game Master. " \
-f"""You will be provided a couple of rounds. 
-You will decide if any of the tools you are provided are necessary or not. Lastly, if you have found that one or more of the tools are necessary, please use them correctly.
-If one or more of the characters spent or gained money, use reduce_money() or add_money() respectively.
-If one or more of the characters gained or lost an item, or made transaction, use add_or_change_item_to_character_inventory() or delete_item_from_character_inventory() respectively.
+tool_system_message = SystemMessage("You are an assistant to a FRPG Game Master that decides if the tools you are provided are necessary, and uses them if needed." \
+f"""
+Always use ResponseFormatter tool to format you responses.
 """)
 
 
-llm_with_tools = llm.bind_tools(tools)
+llm_with_tools = tooler_llm.bind_tools(tools,parallel_tool_calls=True)
 
-
-def looper(state: State):
-    print("chatbot stage")
-    
-    message = llm.invoke(state["messages"])
-
-    return {"messages": [message]}
+last_actions = []
+last_actions.append("No action yet!")
 
 def tool_controller(state: State):
     print("tool_controller stage")
     # Only take the last 4 messages, or fewer if there aren't enough
-    recent_messages = state["messages"][-4:]
+    recent_messages = state["messages"][-5:]
 
-    recent_messages.append("""First, find the last round or last action made. On that last round, decide if any of the tools you are provided are necessary or not in this situation. Explain which of them are necessary with a short explanation and the reasons for that. If you have found that one or more of the tools are necessary, use them correctly. If it wasn't last round, than don't use the tools. Look only at last round.
-If one or more of the characters spent or gained money, use reduce_money() or add_money() respectively.
-If one or more of the characters gained or lost an item, or made transaction, use add_or_change_item_to_character_inventory() or delete_item_from_character_inventory() respectively. I want you to not use tools twice for the same round, therefore, only evaluate the last round.
-Use add or change character only if a character enters our party permanently.
-If you use a price is not given for a transaction, try to deduce it first.""")
+    recent_messages.append(f"""Instructions for Tool Use and Output Formatting:
+
+Only evaluate the last round or last action.
+
+Ignore earlier rounds.
+
+Do not use any tools if the action is not from the last round.
+
+Avoid duplicate processing:
+
+These actions have already been processed: {last_actions}
+
+Do not repeat any action in this list.
+
+Decide if any tool is necessary:
+
+If yes, explain why and use it correctly.
+
+If no tools are needed, clearly state that and explain why.
+
+Tool usage rules:
+
+Use reduce_money() or add_money() if a character spends or gains money. Explain why.
+
+Use add_or_change_item_to_character_inventory() or delete_item_from_character_inventory() if an item is gained, lost, or traded. Explain the context.
+
+Use add_or_change_character() only if a character permanently joins the party. Explain the reason.
+
+When a transaction is mentioned but no price is explicitly stated, try to infer the price using contextual reasoning. However, do not assume that a transaction has occurred unless it is clearly confirmed.
+
+After any transaction, always update both characters’ inventory and money.
+
+Response formatting:
+
+Always use ResponseFormatter, especially when tools are used.
+
+Follow structured output rules.
+
+Use the character and inventory data provided earlier.
+
+Final instruction:
+
+Explain every step you take in your reasoning, even if you take no action.
+
+
+""")
 
     chat_prompt = ChatPromptTemplate.from_messages([
             *recent_messages,
@@ -115,22 +172,26 @@ def filter_out_rule_messages(state:State) -> Annotated[list, "Filtered messages 
 
     messages = state["messages"]
 
-    _dict = {"messages": [RemoveMessage(id=msg.id) for msg in messages if msg.content.startswith("The rules are ")]}
+    _dict = {"messages": [RemoveMessage(id=msg.id) for msg in messages if msg.content.startswith("The main story of my game is") or isinstance(msg,ToolMessage)]}
 
     return _dict 
 
 def prepare_prompts_node(state):
     task = state["messages"][-1]
 
-    human_msg_2 = HumanMessage(f"The rules are {game.rules}. The current characters and their current inventories stats and other details are : {game.characters}")
+    context = "Not Provided Yet!"
+
+    if hasattr(state,context):
+        context = state["context"]
+
+
+    human_msg_2 = HumanMessage(f"The main story of my game is {game.story}. The rules are {game.rules}. A brief history of the previous events in my game is {context}. The most relevant rounds to this last round is :{"Not Provided Yet!"} The current characters and their current inventories stats and other details are : {game.characters} Evaluate if the user's action makes sense, if it does not, answer accordingly. (Such as trying to swim in the sun or entering a building from a closed window.) If a roll is necessary, do automatically.")
 
     chat_prompt = ChatPromptTemplate.from_messages([
             system_message,
             human_msg_2,
             task,
         ])
-
-    
 
     formatted_messages = chat_prompt.format_messages()
 
@@ -159,45 +220,159 @@ def route_tools(
         return "tools"
     return END
 
+def structure(state:State):
+    
+    global last_actions
+
+    if messages := state.get("messages", []):
+            for i in range(len(messages)-1,0,-1):
+                if isinstance(messages[i],AIMessage):
+                    message = messages[i]
+                    break
+            else:
+                raise ValueError("No message found in input")
+    else:
+        raise ValueError("No message found in input")
+    
+    for tool_call in message.tool_calls:
+        print(tool_call["name"])
+        if tool_call["name"]=="ResponseFormatter":
+            
+            args = tool_call["args"]
+
+            pydantic_object = ResponseFormatter.model_validate(args)
+            print("bool:",pydantic_object.tool_used_other_than_responseformatter,"reason:",pydantic_object.reason,"summary:",pydantic_object.summary)
+
+            last_actions.insert(0,pydantic_object.summary)
+            last_actions = last_actions[:2]
+            print("out of structure")
+            return {"reason":pydantic_object.reason,"summary":pydantic_object.summary}
+    else:
+        return {"reason":"No reason!","summary":"No summary!"}
+        
+#pseudocode:
+
+# after running for 10 rounds
+# Summarize and store the first 5 rounds in the RAG.
+# don't send the first 5 rounds into LLM anymore
+
+# after running for another 5 rounds
+# summarize the 5 rounds from the last summarization, along with the summarizaiton
+# store them in the rag too
+# don't erase the messages for explainable ai
+
+# LLM doesn't have to see more than 20 previous messages
+# but it will have different seeing,
+
+
+#second pseudocode
+
+# after running 8 rounds
+# summarize first two into constant amount of tokens and store them in rag
+# story, characters json, rules, rag results of the most relevant 3 results, summary will be provided in each round
+# after that, summarize and every round then store in rag along with the previous summarization
+
 class LoopGraph:
      
-    def __init__(self):
+    def __init__(self,max_seen_rounds = 3):
         
         self.config = {"configurable": {"thread_id": "2"}}
 
+        self.round_counter = 0
+
+        self.last_summarized = 0
+
+        self.max_seen_rounds = max_seen_rounds
+
         graph_builder = StateGraph(State)
         
+
         graph_builder.add_node("filter",filter_out_rule_messages)
 
         graph_builder.add_node("prepare_prompts",prepare_prompts_node)
 
-        graph_builder.add_node("looper",looper)
+        graph_builder.add_node("looper",self.looper)
 
         graph_builder.add_node("tool_controller",tool_controller)
 
         graph_builder.add_node("tools",tool_stage)
 
+        graph_builder.add_node("structure",structure)
+
+        graph_builder.add_node("prepare_summarize_messages",self.prepare_summarize_messages)
+
         graph_builder.add_edge(START, "filter")
         
-        graph_builder.add_edge( "filter","prepare_prompts")
+        graph_builder.add_conditional_edges("filter",self.summarize_condition,{"summarize":"prepare_summarize_messages","continue":"prepare_prompts"})
+
+        graph_builder.add_edge("prepare_summarize_messages","prepare_prompts")
 
         graph_builder.add_edge("prepare_prompts", "looper")
 
         graph_builder.add_edge("looper","tool_controller")
 
-        graph_builder.add_conditional_edges(
-            "tool_controller",route_tools
-            ,{"tools":"tools",END:END}
-        )
+        graph_builder.add_edge("tool_controller","tools")
 
-        graph_builder.add_edge("tools",END)
+        graph_builder.add_edge("tools","structure")
+
+        graph_builder.add_edge("structure",END)
 
         graph = graph_builder.compile(checkpointer=MemorySaver())
 
         self.graph = graph
 
+
+    def prepare_summarize_messages(self,state:State):
+        print("summarization stage")
+
+        messages = state["messages"]
+        context = "Not Provided Yet!"
+        if hasattr(state,"context"):
+            context = state["context"]
+
+        messages_to_summarize = []
+        
+        i = self.last_summarized
+        
+        while i<2:
+            if not isinstance(messages[i],ToolMessage):
+                messages_to_summarize.append(messages[i])
+            i+=1
+
+        self.last_summarized = i
+
+        prompt = f"""You are maintaining a running summary of a fantasy role-playing game session.
+
+        Update the existing summary by incorporating the events from the latest round.
+
+        Here is the previous summary:
+        {context}
+
+        Here is the most recent round:
+        {messages_to_summarize}
+
+        Please provide an updated summary that preserves all relevant details and remains consistent in tone and style."""
+
+        message = summarizer_llm.invoke(prompt)
+
+        return {"context":message,"summarized_messages":message}
+
+
+    def summarize_condition(self,state:State):
+        if self.round_counter >= self.max_seen_rounds:
+            
+            return "summarize"
+        else:
+            return "continue"
+
+    def looper(self,state: State):
+        print("chatbot stage")
+
+        message = llm.invoke(state["messages"][-2*self.max_seen_rounds:])
+
+        return {"messages": [message]}
 # png_data = LoopGraph().graph.get_graph().draw_mermaid_png()
 
 # # PNG'yi dosyaya yaz:
-# with open("graph_png/loop_graph_v7.png", "wb") as f:
+# with open("graph_png/loop_graph_v8.png", "wb") as f:
 #     f.write(png_data)
