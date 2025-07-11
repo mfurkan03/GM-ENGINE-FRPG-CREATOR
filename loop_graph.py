@@ -3,7 +3,8 @@ from typing import Annotated, Literal
 from typing_extensions import TypedDict
 
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.vectorstores import MemoryVectorStore
+from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -14,6 +15,8 @@ from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.messages import HumanMessage,SystemMessage,AIMessage,ToolMessage,RemoveMessage,AnyMessage
 from langchain.prompts import ChatPromptTemplate
 from langmem.short_term import SummarizationNode, RunningSummary
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.schema import Document
 
 from pydantic import BaseModel,Field
 
@@ -23,6 +26,7 @@ from game_functions import add_or_change_character,add_or_change_item_to_charact
 import queue
 
 import os
+import numpy as np
 
 class State(TypedDict):
         messages: Annotated[list, add_messages]
@@ -46,6 +50,14 @@ class ResponseFormatter(BaseModel):
         description="Summary of the action that required tools if there are any, within a sentence. (Other than this tool)",
     )
 
+embedding_model = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2"
+)
+
+documents = [Document(page_content="LangGraph is a framework for orchestrating LLM apps.",metadata = {"round no":0})]
+
+vector_store = FAISS.from_documents(documents, embedding_model)
+
 tools = [
     add_or_change_character,
     add_or_change_item_to_character_inventory,
@@ -54,8 +66,6 @@ tools = [
     reduce_money,
     ResponseFormatter
 ]
-
-
 
 tooler_llm = ChatGroq(
     groq_api_key=os.getenv("GROQ_API_KEY"),
@@ -148,7 +158,6 @@ Final instruction:
 
 Explain every step you take in your reasoning, even if you take no action.
 
-
 """)
 
     chat_prompt = ChatPromptTemplate.from_messages([
@@ -176,6 +185,19 @@ def filter_out_rule_messages(state:State) -> Annotated[list, "Filtered messages 
 
     return _dict 
 
+def retrieve_rag_result(prompt,last_round):
+
+    # prompt_embedding = embedding_model.embed_query(prompt)
+    # last_round_embedding = embedding_model.embed_query(last_round)
+    
+    # embedding = (np.array(prompt_embedding)+np.array(last_round_embedding))/2
+
+    # results = vector_store.similarity_search_by_vector(embedding, k=3)
+
+    results = vector_store.similarity_search(prompt+last_round,3)
+
+    return results
+
 def prepare_prompts_node(state):
     task = state["messages"][-1]
 
@@ -184,8 +206,16 @@ def prepare_prompts_node(state):
     if hasattr(state,context):
         context = state["context"]
 
+    prompt = state["messages"][-1].content
 
-    human_msg_2 = HumanMessage(f"The main story of my game is {game.story}. The rules are {game.rules}. A brief history of the previous events in my game is {context}. The most relevant rounds to this last round is :{"Not Provided Yet!"} The current characters and their current inventories stats and other details are : {game.characters} Evaluate if the user's action makes sense, if it does not, answer accordingly. (Such as trying to swim in the sun or entering a building from a closed window.) If a roll is necessary, do automatically.")
+    last_round = ""
+
+    if len(state["messages"])>2:
+        last_round = state["messages"][-2].content
+
+    result = retrieve_rag_result(prompt,last_round)    
+
+    human_msg_2 = HumanMessage(f"The main story of my game is {game.story}. The rules are {game.rules}. A brief history of the previous events in my game is {context}. The most relevant rounds to this last round according to retrieval augmented generation is :{result} The current characters and their current inventories stats and other details are : {game.characters} I want you to continue the game from this. Evaluate if the user's action makes sense, if it does not, answer accordingly. (Such as trying to swim in the sun or entering a building from a closed window.) If a roll is necessary, do automatically. Here are the last rounds played:")
 
     chat_prompt = ChatPromptTemplate.from_messages([
             system_message,
@@ -249,32 +279,21 @@ def structure(state:State):
             return {"reason":pydantic_object.reason,"summary":pydantic_object.summary}
     else:
         return {"reason":"No reason!","summary":"No summary!"}
-        
-#pseudocode:
 
-# after running for 10 rounds
-# Summarize and store the first 5 rounds in the RAG.
-# don't send the first 5 rounds into LLM anymore
+def format_message(message):
+    if isinstance(message,HumanMessage):
+        role = "Human"
+    elif isinstance(message,AIMessage):
+        role = "AI"
+    else:
+        return
+    
+    return f"{role}: {message.content}"
 
-# after running for another 5 rounds
-# summarize the 5 rounds from the last summarization, along with the summarizaiton
-# store them in the rag too
-# don't erase the messages for explainable ai
-
-# LLM doesn't have to see more than 20 previous messages
-# but it will have different seeing,
-
-
-#second pseudocode
-
-# after running 8 rounds
-# summarize first two into constant amount of tokens and store them in rag
-# story, characters json, rules, rag results of the most relevant 3 results, summary will be provided in each round
-# after that, summarize and every round then store in rag along with the previous summarization
 
 class LoopGraph:
      
-    def __init__(self,max_seen_rounds = 3):
+    def __init__(self,max_seen_rounds = 2):
         
         self.config = {"configurable": {"thread_id": "2"}}
 
@@ -283,6 +302,8 @@ class LoopGraph:
         self.last_summarized = 0
 
         self.max_seen_rounds = max_seen_rounds
+
+        self.splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(chunk_size=500, chunk_overlap=100)
 
         graph_builder = StateGraph(State)
         
@@ -334,12 +355,28 @@ class LoopGraph:
         
         i = self.last_summarized
         
-        while i<2:
+        while i<self.last_summarized+2:
             if not isinstance(messages[i],ToolMessage):
                 messages_to_summarize.append(messages[i])
-            i+=1
-
+                i+=1
+            
         self.last_summarized = i
+
+        rag_text = ""
+        for text in messages_to_summarize:
+
+            formatted = format_message(text)
+            
+            if formatted:
+
+                rag_text+=formatted
+
+        split_texts = self.splitter.split_text(rag_text)
+        
+        docs = [Document(page_content=chunk,metadata = {"round no":self.round_counter}) for chunk in split_texts]
+
+        vector_store.add_documents(docs)
+        # vector_store.save_local("./data/index_langgraph")
 
         prompt = f"""You are maintaining a running summary of a fantasy role-playing game session.
 
@@ -367,8 +404,8 @@ class LoopGraph:
 
     def looper(self,state: State):
         print("chatbot stage")
-
-        message = llm.invoke(state["messages"][-2*self.max_seen_rounds:])
+        print(state["messages"][-3*self.max_seen_rounds:])
+        message = llm.invoke(state["messages"][-3*self.max_seen_rounds:])
 
         return {"messages": [message]}
 # png_data = LoopGraph().graph.get_graph().draw_mermaid_png()
@@ -376,3 +413,25 @@ class LoopGraph:
 # # PNG'yi dosyaya yaz:
 # with open("graph_png/loop_graph_v8.png", "wb") as f:
 #     f.write(png_data)
+
+#pseudocode:
+
+# after running for 10 rounds
+# Summarize and store the first 5 rounds in the RAG.
+# don't send the first 5 rounds into LLM anymore
+
+# after running for another 5 rounds
+# summarize the 5 rounds from the last summarization, along with the summarizaiton
+# store them in the rag too
+# don't erase the messages for explainable ai
+
+# LLM doesn't have to see more than 20 previous messages
+# but it will have different seeing,
+
+
+#second pseudocode
+
+# after running 8 rounds
+# summarize first two into constant amount of tokens and store them in rag
+# story, characters json, rules, rag results of the most relevant 3 results, summary will be provided in each round
+# after that, summarize and every round then store in rag along with the previous summarization

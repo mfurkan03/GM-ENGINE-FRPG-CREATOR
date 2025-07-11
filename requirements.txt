@@ -11,5 +11,8 @@ langchain-ollama
 ipython
 pandas #delete after if not used
 ipykernel #delete after if not used
-streamlit-autorefresh
 langmem
+sentence-transformers
+faiss-cpu
+langchain-huggingface
+numpy
