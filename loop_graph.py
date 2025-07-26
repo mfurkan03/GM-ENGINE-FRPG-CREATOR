@@ -23,8 +23,6 @@ from pydantic import BaseModel,Field
 from static_objects import game,generate_task_prompt
 from game_functions import add_or_change_character,add_or_change_item_to_character_inventory,delete_item_from_character_inventory,define_story,roll_dice,add_money,reduce_money
 
-import queue
-
 import os
 import numpy as np
 

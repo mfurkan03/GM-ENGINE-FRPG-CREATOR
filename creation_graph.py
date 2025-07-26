@@ -78,7 +78,7 @@ def evaluator_stage(state:State):
     human_message = "The requested task is this:" + state["current_task"]+"The output generated for this task is this:"+str(schema)+" Are there any mistakes here? If so, please specify the source of the mistake, in detail providing the exact location of the mistake. Else, Answer with yes. Note, the tools that were available in the task are not available for you, don't take tool usage into consideration."
     response = evaluator.invoke([SystemMessage("You are an evaluator for an FRPG game. The user will send you a prompt regarding the requested format and an output for that format, and you will check if the produced output fits the format. Are there blank fields that should not be blank? Don't be too harsh the format doesn't have to exactly comply. If there isn't any blank field or structural mistake, then no problem!"),HumanMessage(human_message)])
     
-    # print(response.feedback,game.characters,game.rules)
+    print(response.format_comply_or_not,response.feedback,game.characters)
     return {"format_comply_or_not":response.format_comply_or_not, "feedback":response.feedback}
 
 def route_feedback(state:State):
