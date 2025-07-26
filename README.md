@@ -2,6 +2,7 @@
 
 This is a text-based fantasy role-playing game powered by **LangGraph**, **LangChain tools**, and **LLMs (Language Models)**. Players can interact with a dynamic world, talk to NPCs, make decisions, roll dice, and manage inventory — all within an AI-powered game master system.
 
+Memory of the previous events are handled via RAG and Summarization for less token usage for production environments. Game creation takes around 10 - 50 thousand tokens while each turn takes apprx. 8000 tokens when the last_x_rounds variable is set to the default of 6.
 ---
 
 ## 🎮 Features
