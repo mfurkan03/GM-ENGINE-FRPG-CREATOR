@@ -3,7 +3,7 @@
 ## 📽️ Presentation
 
 You can view the full project presentation here:  
-👉 [Watch on Canva](https://www.canva.com/design/DAGs21sx2CY/kApYZTfYKQbzBy358Uns7Q/edit?utm_content=DAGs21sx2CY&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton)
+👉 [See on Canva](https://www.canva.com/design/DAGs21sx2CY/kApYZTfYKQbzBy358Uns7Q/edit?utm_content=DAGs21sx2CY&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton)
 
 The slides include:
 - Project goals and architecture
