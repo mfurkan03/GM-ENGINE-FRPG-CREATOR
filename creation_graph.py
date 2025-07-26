@@ -14,7 +14,7 @@ from langchain.prompts import ChatPromptTemplate
 
 from pydantic import BaseModel,Field
 
-from static_objects import game,first_prompt
+from static_objects import game
 from game_functions import add_or_change_character,add_or_change_item_to_character_inventory,define_rules,define_story
 
 import os
@@ -27,8 +27,10 @@ class State(TypedDict):
         current_schema_no:int
 
 llm = ChatGroq(
-    groq_api_key=os.getenv("GROQ_API_KEY"),
+   groq_api_key=os.getenv("GROQ_API_KEY"),
     model="qwen/qwen3-32b",  # veya Groq'un desteklediği başka bir model
+    reasoning_effort="default",
+    reasoning_format="hidden"
 )
 
 #llm = ChatOllama(model = "llama3.2:3b")
@@ -73,12 +75,10 @@ def evaluator_stage(state:State):
     print("evaluator stage")
     schema = [game.story,game.rules,game.characters,game.characters]
     schema = schema[state["current_schema_no"]]
-    human_message = "The requested task is this:" + state["current_task"]+"The output generated for this task is this:"+str(schema)+" Are there any mistakes here? If so, please specify the source of the mistake. Else, Answer with yes. Note, the tools that were available in the task are not available for you, don't take tool usage into consideration."
-
+    human_message = "The requested task is this:" + state["current_task"]+"The output generated for this task is this:"+str(schema)+" Are there any mistakes here? If so, please specify the source of the mistake, in detail providing the exact location of the mistake. Else, Answer with yes. Note, the tools that were available in the task are not available for you, don't take tool usage into consideration."
     response = evaluator.invoke([SystemMessage("You are an evaluator for an FRPG game. The user will send you a prompt regarding the requested format and an output for that format, and you will check if the produced output fits the format. Are there blank fields that should not be blank? Don't be too harsh the format doesn't have to exactly comply. If there isn't any blank field or structural mistake, then no problem!"),HumanMessage(human_message)])
     
     # print(response.feedback,game.characters,game.rules)
-    print(response)
     return {"format_comply_or_not":response.format_comply_or_not, "feedback":response.feedback}
 
 def route_feedback(state:State):

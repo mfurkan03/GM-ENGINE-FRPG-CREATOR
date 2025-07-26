@@ -16,3 +16,6 @@ sentence-transformers
 faiss-cpu
 langchain-huggingface
 numpy
+fastapi
+requests
+playsound

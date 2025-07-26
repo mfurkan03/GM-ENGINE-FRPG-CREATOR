@@ -23,70 +23,98 @@ class GameContext:
 with open('game_1.pkl', 'rb') as file:
     game = pickle.load(file)
 
+
+def new_game():
+    global game
+    game.characters = {}
+    game.story = ""
+    game.rules = ""
+
+def load_game(game_pkl):
+    global game
+
+    with open(game_pkl, 'rb') as file:
+        game_2 = pickle.load(file)
+
+    game.characters = game_2.characters
+    game.story = game_2.story
+    game.rules = game_2.rules
+
+theme = "medieval_dynasty"
+
 prompts = []
+
 system_message = SystemMessage("You are a professional FRPG game designer. Don't answer me, only do the job I tell. Don't use tools too much for formatting etc. When calling functions, ensure the JSON uses lowercase true/false for booleans. Important: Be original,creative,unique!")
 
-theme = "cyberpunk"
-
-rule_format = f"""for my frpg game, my theme is {theme}:  There are Players and a Game Master (GM). Ability checks use 2d10 (two ten-sided dice), summing the results. 
-To succeed, you must meet or exceed the Difficulty Rating (DR) set by the GM: 
-Easy: DR 12 Medium: DR 16 Hard: DR 20 Very Hard: DR 24 If you have relevant expertise, 
-add +3; if you’re a master, add +5. Character Creation Your character has 3 core attributes: 
-Body : Physical strength, endurance Reflexes : Speed, agility, aim Mind : Intelligence, cyber skills, 
-analysis At character creation, distribute 4, 3, and 1 points among these attributes (total of 8 points). 
-Additionally, choose: One expertise/role (e.g., Netrunner, Street Samurai, Mechanic). 
-One motivation (e.g., Cause chaos, Save family, Seek knowledge). 
-One flaw (e.g., Paranoia, Substance addiction, Ambition).  
-Combat System For initiative, roll 2d10 + REF, highest goes first. 
-For attacks, roll 2d10 + REF or BOD + expertise bonus, aiming to beat the defense DR (typically 16 + enemy’s armor rating). 
-Damage: Light weapons: 1d8 Medium-caliber/one-handed melee weapons: 1d10 Heavy weapons: 1d12 
-The GM can adjust damage based on narrative context and weapon type.  
-Health Each character has 15 + BOD points as Hit Points (HP). When HP drops to zero, the character becomes critically injured 
-and rolls a death die: 1d10 → below 5 means death; 5 or higher means unconscious but alive.  
-Cyber Powers & Hacking Mechanics To use cyber abilities or hack, make a MND-based check: 2d10 + MND + cyber expertise bonus ≥ hack 
-DR (DR = 14 + target system’s security level). On failure, the system triggers an alarm, security responds, and the hacker loses 
-their next action. Advancement At the end of each adventure, the GM awards 1–2 advancement points. At 4 advancement points, 
-you can increase an attribute by +1 or gain a new expertise. Acquiring cyber abilities or implants requires GM approval.  
-Sample Character Name: Neon BOD 3 / REF 4 / MND 1 Expertise: Street Samurai Motivation: Revenge against megacorps Flaw: 
-Uncontrolled anger HP: 18"""
-
-tasks = [
 
 
-f"""Create an outline for the game's story in theme: {theme}. Store this story with define_story tool. Formatting of the text is not that important. Pay attention : I want you to create a starting point for the story, not the whole story.""",
+
+def generate_tasks(theme):
+
+    rule_format = f"""for my frpg game please create rules in this format. Not exactly these but similar, my theme is {theme}:  There are Players and a Game Master (GM). Ability checks use 2d10 (two ten-sided dice), summing the results. 
+                To succeed, you must meet or exceed the Difficulty Rating (DR) set by the GM: 
+                Easy: DR 12 Medium: DR 16 Hard: DR 20 Very Hard: DR 24 If you have relevant expertise, 
+                add +3; if you’re a master, add +5. Character Creation Your character has 3 core attributes: 
+                Body : Physical strength, endurance Reflexes : Speed, agility, aim Mind : Intelligence, cyber skills, (you can change the name of the stats based on the theme)
+                analysis At character creation, distribute 4, 3, and 1 points among these attributes (total of 8 points). 
+                Additionally, choose: One expertise/role (e.g., Netrunner, Street Samurai, Mechanic). 
+                One motivation (e.g., Cause chaos, Save family, Seek knowledge). 
+                One flaw (e.g., Paranoia, Substance addiction, Ambition).  
+                Combat System For initiative, roll 2d10 + REF, highest goes first. 
+                For attacks, roll 2d10 + REF or BOD + expertise bonus, aiming to beat the defense DR (typically 16 + enemy’s armor rating). 
+                Damage: Light weapons: 1d8 Medium-caliber/one-handed melee weapons: 1d10 Heavy weapons: 1d12 
+                The GM can adjust damage based on narrative context and weapon type.  
+                Health Each character has 15 + BOD points as Hit Points (HP). When HP drops to zero, the character becomes critically injured 
+                and rolls a death die: 1d10 → below 5 means death; 5 or higher means unconscious but alive.  
+                Cyber Powers & Hacking Mechanics To use cyber abilities or hack, make a MND-based check: 2d10 + MND + cyber expertise bonus ≥ hack 
+                DR (DR = 14 + target system’s security level). On failure, the system triggers an alarm, security responds, and the hacker loses 
+                their next action. Advancement At the end of each adventure, the GM awards 1–2 advancement points. At 4 advancement points, 
+                you can increase an attribute by +1 or gain a new expertise. Acquiring cyber abilities or implants requires GM approval.  
+                Sample Character Name: Neon BOD 3 / REF 4 / MND 1 Expertise: Street Samurai Motivation: Revenge against megacorps Flaw: 
+                Uncontrolled anger HP: 18"""
+    
+    tasks = [
 
 
-f"""
-Write a clear set of game rules. These rules must be in this format, but this isn't an exact obligation! Only use main ideas not strict rules! :{rule_format}:
-
-Simple and unambiguous.
-
-Written in plain language that can be understood and enforced by another LLM for rule-compliance evaluation.
-
-Covering key gameplay aspects, including combat, inventory, and interaction with NPCs. No rule about movement!
-
-Once the rules are ready, don't forget to store them in the database using define_rules()!""",
+    f"""Create an outline for the game's story in theme: {theme}. Store this story with define_story tool. Formatting of the text is not that important. Pay attention : I want you to create a starting point for the story, not the whole story.""",
 
 
-"""Create the main characters:
+    f"""
+    Write a clear set of game rules. These rules must be in this format, but this isn't an exact obligation! Only use main ideas not strict rules! :{rule_format}:
 
-Write a short description of each character, including their personality or backstory.
+    Simple and unambiguous.
 
-Assign stats for each character in dictionary format (e.g., {"strength": 8, "intelligence": 6}, don't use abbreviations like BOD or MND etc.) Also give money and HP to the characters.
+    Written in plain language that can be understood and enforced by another LLM for rule-compliance evaluation.
 
-Add each NPC to the game using the tool: 'add_or_change_character' . But don't create the inventories yet! The user will later select which character to play. """,
+    Covering key gameplay aspects, including combat, inventory, and interaction with NPCs. No rule about movement! Don't include an inventory capacity rule! Only add that player should be ably to carry humanly carriable things.
+
+    Once the rules are ready, don't forget to store them in the database using define_rules()!""",
 
 
-"""
-For each NPC:
+    """Create the main characters:
+    Create 3 to 5 characters. Don't create more than 5 characters
+    Write a short description of each character, including their personality or backstory.
 
-Create appropriate items or weapons.
+    Assign stats for each character in dictionary format (e.g., {"strength": 8, "intelligence": 6}, don't use abbreviations like BOD or MND etc.) Also give money to the characters but don't give HP since I did not implement it yet.
 
-Write a description or explanation for each item.
+    Add each NPC to the game using the tool: 'add_or_change_character' . But don't create the inventories yet! The user will later select which character to play.  Remember, don't use add_or_change_item_to_character_inventory() tool in this stage, don't create inventories!
 
-Assign stats to items if applicable (as a dictionary).
+    If you make a mistake in character creation, create and override the character in a clean form using: add_or_change_character() tool
+    """,
 
-Add the items to the corresponding NPC’s inventory using add_or_change_item_to_character_inventory."""]
+
+    """
+    For each NPC:
+
+    Create appropriate items or weapons.
+
+    Write a description or explanation for each item.
+
+    Assign stats to items if applicable (as a dictionary).
+
+    Add the items to the corresponding NPC’s inventory using add_or_change_item_to_character_inventory."""]
+
+    return tasks
 
 first_prompt = ""
 
@@ -135,78 +163,27 @@ class BasicToolNode:
             )
         return {"messages": outputs}
 
-def sanitize_message_content(messages: List[BaseMessage]) -> List[BaseMessage]:
-    """
-    Args:
-        messages: List of BaseMessage objects to sanitize
+def generate_task_prompt():
+
+    main_character =  list(game.characters.keys())[-1]
+
+    task_prompt = f"""My character is {main_character}, other characters are NPCs. 
+        You will play the rounds of NPCs and won't give the decisions to me for them.  Only play the npc characters. Don't play the PLAYER characters, 
+        I will make every decision about me, don't decide what I will do or say. 
+        After I say my input, play the rounds for each npc in order. 
+        The round order for me and other characters is in this order: {list(game.characters.keys())}, please obey this order. 
+        Based on the provided details, first tell our current situation, explain the story and continue the game in round order by playing the NPCs. 
         
-    Returns:
-        List[BaseMessage]: Sanitized message list with empty text entries removed
-    """
-    sanitized_messages = []
+        The story should go like this, start from the start, you can manipulate the story if needed:{game.story}. 
 
-    for msg in messages:
-        # Create a copy of the message to avoid modifying the original
-        if isinstance(msg, AIMessage) or isinstance(msg, AIMessageChunk):
-            # Handle content that is a list of content items (dict with type/text)
-            if isinstance(msg.content, list):
-                # Filter out content items with empty text
-                non_empty_content = [
-                    item for item in msg.content 
-                    if not (item.get('type') == 'text' and (item.get('text', '') == '' or item.get('text') is None))
-                ]
-                
-                # If we have non-empty content, create a new message with it
-                if non_empty_content:
-                    new_msg = AIMessage(
-                        content=non_empty_content,
-                        additional_kwargs=msg.additional_kwargs,
-                        response_metadata=msg.response_metadata,
-                        id=msg.id,
-                        tool_calls=getattr(msg, 'tool_calls', None),
-                        usage_metadata=getattr(msg, 'usage_metadata', None)
-                    )
-                    sanitized_messages.append(new_msg)
-                else:
-                    # If all content was empty and removed, create a simple non-empty message
-                    # to maintain the conversation flow
-                    new_msg = AIMessage(
-                        content=[{'type': 'text', 'text': '[No content]'}],
-                        additional_kwargs=msg.additional_kwargs,
-                        response_metadata=msg.response_metadata,
-                        id=msg.id,
-                        tool_calls=getattr(msg, 'tool_calls', None),
-                        usage_metadata=getattr(msg, 'usage_metadata', None)
-                    )
-                    sanitized_messages.append(new_msg)
-            else:
-                # Handle string content - ensure it's not empty
-                if not msg.content:
-                    content = "[No content]"
-                # Handle case when content is a string representation of a list with empty text
-                elif isinstance(msg.content, str) and msg.content.startswith("[{'type': 'text', 'text': ") and ("''" in msg.content or '""' in msg.content):
-                    content = "[No content]"
-                elif isinstance(msg.content, list) and len(msg.content) == 1:
-                    item = msg.content[0]
-                    if isinstance(item, dict) and item.get('type') == 'text' and not item.get('text', '').strip():
-                        content = "[No content]"
-                    else:
-                        content = msg.content
-                else:
-                    content = msg.content
-                
-                new_msg = AIMessage(
-                    content=[{'type': 'text', 'text': content}] if isinstance(content, str) else content,
-                    additional_kwargs=msg.additional_kwargs,
-                    response_metadata=msg.response_metadata,
-                    id=msg.id,
-                    model_fields_set=msg.model_fields_set,
-                    tool_calls=getattr(msg, 'tool_calls', None),
-                    usage_metadata=getattr(msg, 'usage_metadata', None)
-                )
-                sanitized_messages.append(new_msg)
-        else:
-            # For non-AI messages, keep as is
-            sanitized_messages.append(msg)
+        Don't talk too long, don't talk or describe unnecessarily. Ask for confirmation before any important action from me.
 
-    return sanitized_messages
+        Write in this format!:
+        
+        ## **Round 1**
+        ### **Character 1's turn**
+        ### **Character 2's turn**
+        ...
+        ### **Player's Character's turn2** : please provide input
+        """
+    return task_prompt

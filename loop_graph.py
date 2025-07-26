@@ -20,7 +20,7 @@ from langchain.schema import Document
 
 from pydantic import BaseModel,Field
 
-from static_objects import game,game_string_format,BasicToolNode
+from static_objects import game,generate_task_prompt
 from game_functions import add_or_change_character,add_or_change_item_to_character_inventory,delete_item_from_character_inventory,define_story,roll_dice,add_money,reduce_money
 
 import queue
@@ -33,7 +33,7 @@ class State(TypedDict):
         reason : str
         summary : str
         context: str
-        summarized_messages: list[AnyMessage,add_messages]
+        summarized_messages: Annotated[list,add_messages]
 
 class ResponseFormatter(BaseModel):
     """Always use this tool to structure your response to the user."""
@@ -54,9 +54,11 @@ embedding_model = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
-documents = [Document(page_content="LangGraph is a framework for orchestrating LLM apps.",metadata = {"round no":0})]
+documents = [Document(page_content=" ",metadata = {"round no":0})]
 
 vector_store = FAISS.from_documents(documents, embedding_model)
+
+to_remove = []
 
 tools = [
     add_or_change_character,
@@ -78,7 +80,7 @@ tooler_llm = ChatGroq(
 
 llm = ChatGroq(
     groq_api_key=os.getenv("GROQ_API_KEY"),
-    model="llama-3.1-8b-instant",  # veya Groq'un desteklediği başka bir model
+    model="meta-llama/llama-4-scout-17b-16e-instruct",  # veya Groq'un desteklediği başka bir model
 )
 
 summarizer_llm = ChatGroq(
@@ -86,9 +88,9 @@ summarizer_llm = ChatGroq(
     model="gemma2-9b-it",  # veya Groq'un desteklediği başka bir model
 )
 
-summarizer_llm = summarizer_llm.bind(max_tokens = 512)
+summarizer_llm = summarizer_llm.bind(max_tokens = 1024)
 
-last_x_rounds = 10
+last_x_rounds = 3
 
 system_message = SystemMessage("You are a FRPG Game Master. " \
 f"You will be provided with the game scenario, the game history brief, the rules, the last {last_x_rounds} rounds "\
@@ -103,7 +105,6 @@ f"""
 Always use ResponseFormatter tool to format you responses.
 """)
 
-
 llm_with_tools = tooler_llm.bind_tools(tools,parallel_tool_calls=True)
 
 last_actions = []
@@ -112,7 +113,7 @@ last_actions.append("No action yet!")
 def tool_controller(state: State):
     print("tool_controller stage")
     # Only take the last 4 messages, or fewer if there aren't enough
-    recent_messages = state["messages"][-5:]
+    recent_messages = state["messages"][-9:]
 
     recent_messages.append(f"""Instructions for Tool Use and Output Formatting:
 
@@ -136,7 +137,7 @@ If no tools are needed, clearly state that and explain why.
 
 Tool usage rules:
 
-Use reduce_money() or add_money() if a character spends or gains money. Explain why.
+Use reduce_money() or add_money() if one or more characters spends or gains money for each character. Explain why.
 
 Use add_or_change_item_to_character_inventory() or delete_item_from_character_inventory() if an item is gained, lost, or traded. Explain the context.
 
@@ -163,8 +164,10 @@ Explain every step you take in your reasoning, even if you take no action.
     chat_prompt = ChatPromptTemplate.from_messages([
             *recent_messages,
         ])
-
+    #print(chat_prompt.format_messages())
     message = llm_with_tools.invoke(chat_prompt.format_messages())
+
+    to_remove.append(message.id)
 
     return {"messages": [message]}
     
@@ -181,7 +184,7 @@ def filter_out_rule_messages(state:State) -> Annotated[list, "Filtered messages 
 
     messages = state["messages"]
 
-    _dict = {"messages": [RemoveMessage(id=msg.id) for msg in messages if msg.content.startswith("The main story of my game is") or isinstance(msg,ToolMessage)]}
+    _dict = {"messages": [RemoveMessage(id=msg.id) for msg in messages if msg.content.startswith("The main story of my game is") or isinstance(msg,ToolMessage) or msg.content.startswith("My character is ")]}
 
     return _dict 
 
@@ -197,36 +200,6 @@ def retrieve_rag_result(prompt,last_round):
     results = vector_store.similarity_search(prompt+last_round,3)
 
     return results
-
-def prepare_prompts_node(state):
-    task = state["messages"][-1]
-
-    context = "Not Provided Yet!"
-
-    if hasattr(state,context):
-        context = state["context"]
-
-    prompt = state["messages"][-1].content
-
-    last_round = ""
-
-    if len(state["messages"])>2:
-        last_round = state["messages"][-2].content
-
-    result = retrieve_rag_result(prompt,last_round)    
-
-    human_msg_2 = HumanMessage(f"The main story of my game is {game.story}. The rules are {game.rules}. A brief history of the previous events in my game is {context}. The most relevant rounds to this last round according to retrieval augmented generation is :{result} The current characters and their current inventories stats and other details are : {game.characters} I want you to continue the game from this. Evaluate if the user's action makes sense, if it does not, answer accordingly. (Such as trying to swim in the sun or entering a building from a closed window.) If a roll is necessary, do automatically. Here are the last rounds played:")
-
-    chat_prompt = ChatPromptTemplate.from_messages([
-            system_message,
-            human_msg_2,
-            task,
-        ])
-
-    formatted_messages = chat_prompt.format_messages()
-
-    # State'e ekle
-    return {"messages": formatted_messages}
 
 def tool_stage(state:State):
     print("tool stage")
@@ -293,7 +266,7 @@ def format_message(message):
 
 class LoopGraph:
      
-    def __init__(self,max_seen_rounds = 2):
+    def __init__(self,max_seen_rounds = 6):
         
         self.config = {"configurable": {"thread_id": "2"}}
 
@@ -310,8 +283,6 @@ class LoopGraph:
 
         graph_builder.add_node("filter",filter_out_rule_messages)
 
-        graph_builder.add_node("prepare_prompts",prepare_prompts_node)
-
         graph_builder.add_node("looper",self.looper)
 
         graph_builder.add_node("tool_controller",tool_controller)
@@ -324,11 +295,9 @@ class LoopGraph:
 
         graph_builder.add_edge(START, "filter")
         
-        graph_builder.add_conditional_edges("filter",self.summarize_condition,{"summarize":"prepare_summarize_messages","continue":"prepare_prompts"})
+        graph_builder.add_conditional_edges("filter",self.summarize_condition,{"summarize":"prepare_summarize_messages","continue":"looper"})
 
-        graph_builder.add_edge("prepare_summarize_messages","prepare_prompts")
-
-        graph_builder.add_edge("prepare_prompts", "looper")
+        graph_builder.add_edge("prepare_summarize_messages","looper")
 
         graph_builder.add_edge("looper","tool_controller")
 
@@ -348,7 +317,8 @@ class LoopGraph:
 
         messages = state["messages"]
         context = "Not Provided Yet!"
-        if hasattr(state,"context"):
+        
+        if "context" in state:
             context = state["context"]
 
         messages_to_summarize = []
@@ -377,7 +347,6 @@ class LoopGraph:
 
         vector_store.add_documents(docs)
         # vector_store.save_local("./data/index_langgraph")
-
         prompt = f"""You are maintaining a running summary of a fantasy role-playing game session.
 
         Update the existing summary by incorporating the events from the latest round.
@@ -388,11 +357,10 @@ class LoopGraph:
         Here is the most recent round:
         {messages_to_summarize}
 
-        Please provide an updated summary that preserves all relevant details and remains consistent in tone and style."""
+        Please provide an updated summary that preserves all relevant details and remains consistent in tone and style. Don't include information about inventories and characters"""
 
         message = summarizer_llm.invoke(prompt)
-
-        return {"context":message,"summarized_messages":message}
+        return {"context":message.content,"summarized_messages":message.content}
 
 
     def summarize_condition(self,state:State):
@@ -404,15 +372,51 @@ class LoopGraph:
 
     def looper(self,state: State):
         print("chatbot stage")
-        print(state["messages"][-3*self.max_seen_rounds:])
-        message = llm.invoke(state["messages"][-3*self.max_seen_rounds:])
+
+        task = state["messages"][-1]
+
+        context = "Not Provided Yet!"
+
+        if "context" in state:
+            context = state["context"]
+
+        prompt = state["messages"][-1].content
+
+        last_round = ""
+        print(context)
+        if len(state["messages"])>2:
+            last_round = state["messages"][-2].content
+
+        result = retrieve_rag_result(prompt,last_round)    
+        
+        #print(context,result)
+
+        human_msg_2 = HumanMessage(f"The main story of my game is {game.story}. The rules are {game.rules}. A brief history of the previous events in my game is {context}. The most relevant rounds to this last round according to retrieval augmented generation is :{result} The current characters and their current inventories stats and other details are : {game.characters} I want you to continue the game from this. Evaluate if the user's action makes sense, if it does not, answer accordingly. (Such as trying to swim in the sun or entering a building from a closed window.) If a roll is necessary, do automatically. Here are the last rounds played:")
+        
+        last_rounds = state["messages"][-4*self.max_seen_rounds:]
+        
+        task_prompt = generate_task_prompt()
+
+        chat_prompt = ChatPromptTemplate.from_messages([
+                system_message,
+                task_prompt,
+                human_msg_2,
+                *last_rounds,
+                task,
+            ])
+
+        formatted_messages = chat_prompt.format_messages()
+
+
+        message = llm.invoke(formatted_messages)
 
         return {"messages": [message]}
-# png_data = LoopGraph().graph.get_graph().draw_mermaid_png()
+    
+png_data = LoopGraph().graph.get_graph().draw_mermaid_png()
 
-# # PNG'yi dosyaya yaz:
-# with open("graph_png/loop_graph_v8.png", "wb") as f:
-#     f.write(png_data)
+# PNG'yi dosyaya yaz:
+with open("graph_png/loop_graph_v8.png", "wb") as f:
+    f.write(png_data)
 
 #pseudocode:
 
