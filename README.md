@@ -52,7 +52,7 @@ cd frpg
 ```bash
 pip install -r requirements.txt
 ```
-### 3. Set API Keys
+### 3. Set API Keys In .env
 ```bash
 GROQ_API_KEY=your-groq-key
 ```
